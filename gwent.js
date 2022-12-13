@@ -2031,17 +2031,6 @@ class UI {
 		}
 	}
 
-	// Enables or disables backgorund music 
-	setYouTubeEnabled(enable) {
-		if (this.ytActive === enable)
-			return;
-		if (enable && !this.mute)
-			ui.youtube.playVideo();
-		else
-			ui.youtube.pauseVideo();
-		this.ytActive = enable;
-	}
-
 	// Called when the player selects a selectable card
 	async selectCard(card) {
 		let row = this.lastRow;
