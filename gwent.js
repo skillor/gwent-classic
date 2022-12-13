@@ -665,7 +665,7 @@ class Player {
 					false
 			);
 			this.elem_leader.children[0].addEventListener("mouseover", function() {
-				tocar("card", false);
+				playSfx("card");
 				this.style.boxShadow = "0 0 1.5vw #6d5210"
 			});
 			this.elem_leader.children[0].addEventListener("mouseout", function() {
@@ -939,7 +939,7 @@ class Deck extends CardContainer {
 
 	// Sends the top card to the passed hand
 	async draw(hand) {
-		tocar("game_buy", false);
+		playSfx("game_buy");
 		if (hand === player_op.hand)
 			hand.addCard(this.removeCard(0));
 		else
@@ -1037,7 +1037,7 @@ class Row extends CardContainer {
 		this.elem.addEventListener("click", () => ui.selectRow(this), true);
 		this.elem.addEventListener("mouseover", function() {
 			if (hover_row) {
-				tocar("card", false);
+				playSfx("card");
 				this.style.boxShadow = "0 0 1.5vw #6d5210";
 			}
 		});
@@ -1121,7 +1121,7 @@ class Row extends CardContainer {
 	// Activates weather effect and visuals
 	addOverlay(overlay) {
 		var som = overlay == "fog" || overlay == "rain" ? overlay : overlay == "frost" ? "cold" : "";
-		if (som != "") tocar(som, false);
+		if (som != "") playSfx(som);
 		this.effects.weather = true;
 		this.elem_parent.getElementsByClassName("row-weather")[0].classList.add(overlay);
 		this.updateScore();
@@ -1270,7 +1270,7 @@ class Weather extends CardContainer {
 		card.elem.classList.add("noclick");
 		if (card.name === "Clear Weather") {
 			// TODO Sunlight animation
-			tocar("clear", false);
+			playSfx("clear");
 			await sleep(500);
 			this.clearWeather();
 		} else {
@@ -1341,7 +1341,7 @@ class Board {
 
 	// Sends and translates a card from the source to the Deck of the card's holder
 	async toDeck(card, source) {
-		tocar("discard", false);
+		playSfx("discard");
 		await this.moveTo(card, "deck", source);
 	}
 
@@ -1634,14 +1634,14 @@ class Game {
 
 		endScreen.children[0].className = "";
 		if (player_op.health <= 0 && player_me.health <= 0) {
-			tocar("");
+			playSfx("");
 			endScreen.getElementsByTagName("p")[0].classList.remove("hide");
 			endScreen.children[0].classList.add("end-draw");
 		} else if (player_op.health === 0) {
-			tocar("game_win", true);
+			playSfx("game_win");
 			endScreen.children[0].classList.add("end-win");
 		} else {
-			tocar("game_lose", true);
+			playSfx("game_lose");
 			endScreen.children[0].classList.add("end-lose");
 		}
 
@@ -1651,7 +1651,6 @@ class Game {
 
 	// Returns the client to the deck customization screen
 	returnToCustomization() {
-		initAudio();
 		this.reset();
 		player_me.reset();
 		player_op.reset();
@@ -1663,7 +1662,6 @@ class Game {
 
 	// Restarts the last game with the dame decks
 	restartGame() {
-		initAudio();
 		limpar();
 		this.reset();
 		player_me.reset();
@@ -1773,7 +1771,7 @@ class Card {
 		for (var x in guia) temSom[temSom.length] = x;
 		var literais = ["scorch", "spy", "horn"];
 		var som = literais.indexOf(name) > -1 ? literais[literais.indexOf(name)] : temSom.indexOf(name) > -1 ? guia[name] : "";
-		if (som != "") tocar(som, false);
+		if (som != "") playSfx(som);
 		if (name === "scorch") {
 			return await this.scorch(name);
 		}
@@ -2108,7 +2106,7 @@ class UI {
 	cancel() {
 		if (!fimU) {
 			fimU = true;
-			tocar("discard", false);
+			playSfx("discard");
 			lCard = null;
 			exibindo_lider = false;
 			carta_c = false;
@@ -2119,7 +2117,7 @@ class UI {
 	// Displays a card preview then enables and highlights potential card destinations
 	showPreview(card) {
 		fimU = false;
-		tocar("explaining", false);
+		playSfx("explaining");
 		this.showPreviewVisuals(card);
 		this.setSelectable(card, true);
 		document.getElementById("click-background").classList.remove("noclick");
@@ -2216,7 +2214,7 @@ class UI {
 		var temSom = new Array();
 		for (var x in guia2) temSom[temSom.length] = x;
 		var som = temSom.indexOf(name) > -1 ? guia2[name] : name == "round-start" && game.roundHistory.length == 0 ? "round1_start" : "";
-		if (som != "") tocar(som, false);
+		if (som != "") playSfx(som);
 		this.notif_elem.children[0].id = "notif-" + name;
 		this.notif_elem.children[0].style.backgroundImage = name == "op-leader" ? "url(img/icons/notif_" + player_op.deck.faction + ".png)" : "";
 		var caracteres = guia1[this.notif_elem.children[0].id].length;
@@ -2442,11 +2440,11 @@ class Carousel {
 
 		this.elem.classList.remove("hide");
 		ui.enablePlayer(true);
-		tocar("explaining", false);
+		playSfx("explaining");
 		fimC = false;
 		setTimeout(function() {
 			var label = document.getElementById("carousel_label");
-			if (label.innerText.indexOf("redraw") > -1 && label.className.indexOf("hide") == -1) tocar("game_start", false);
+			if (label.innerText.indexOf("redraw") > -1 && label.className.indexOf("hide") == -1) playSfx("game_start");
 		}, 50);
 	}
 
@@ -2455,7 +2453,7 @@ class Carousel {
 		try {
 			(event || window.event).stopPropagation();
 		} catch (err) {}
-		tocar("card", false);
+		playSfx("card");
 		this.index = Math.max(0, Math.min(this.indices.length - 1, this.index + n));
 		this.update();
 	}
@@ -2466,7 +2464,7 @@ class Carousel {
 			(event || window.event).stopPropagation();
 		} catch (err) {}
 		var label = document.getElementById("carousel_label");
-		if (label.innerText.indexOf("redraw") > -1 && label.className.indexOf("hide") == -1) tocar("redraw", false);
+		if (label.innerText.indexOf("redraw") > -1 && label.className.indexOf("hide") == -1) playSfx("redraw");
 		--this.count;
 		if (this.isLastSelection())
 			this.elem.classList.add("hide");
@@ -2482,7 +2480,7 @@ class Carousel {
 	cancel() {
 		if (!fimC) {
 			fimC = true;
-			tocar("discard", false);
+			playSfx("discard");
 			lCard = null;
 			exibindo_lider = false;
 			if (this.bExit) {
@@ -2600,7 +2598,7 @@ class DeckMaker {
 		this.leader_elem = document.getElementById("card-leader");
 		this.leader_elem.children[1].addEventListener("click", () => this.selectLeader(), false);
 		this.leader_elem.children[1].addEventListener("mouseover", function() {
-			tocar("card", false);
+			playSfx("card");
 			this.style.boxShadow = "0 0 1.5vw #6d5210"
 		});
 		this.leader_elem.children[1].addEventListener("mouseout", function() {
@@ -2649,9 +2647,9 @@ class DeckMaker {
 		if (!silent && this.faction === faction_name)
 			return false;
 		if (!silent) {
-			tocar("warning", false);
+			playSfx("warning");
 			if (!confirm("Changing factions will clear the current deck. Continue? ")) {
-				tocar("warning", false);
+				playSfx("warning");
 				return false;
 			}
 		}
@@ -2865,11 +2863,11 @@ class DeckMaker {
 	// Called when client selects s a preview card. Moves it from bank to deck or vice-versa then updates;
 	select(index, isBank) {
 		if (isBank) {
-			tocar("menu_buy", false);
+			playSfx("menu_buy");
 			this.add(index, this.deck);
 			this.remove(index, this.bank);
 		} else {
-			tocar("discard", false);
+			playSfx("discard");
 			this.add(index, this.bank);
 			this.remove(index, this.deck);
 		}
@@ -2931,7 +2929,7 @@ class DeckMaker {
 
 		this.elem.classList.add("hide");
 		called_leader = false;
-		tocar("game_opening", false);
+		playSfx("game_opening");
 		game.startGame();
 	}
 
@@ -3011,9 +3009,9 @@ class DeckMaker {
 			}));
 
 		if (warning) {
-			tocar("warning", false);
+			playSfx("warning");
 			if (!confirm(warning + "\n\n\Continue importing deck?")) {
-				tocar("warning", false);
+				playSfx("warning");
 				return;
 			}
 		}
@@ -3262,15 +3260,11 @@ function openFullscreen() {
 
 var lastSound = "";
 
-function tocar(arquivo, pararMusica) {
+function playSfx(sound) {
 	if (!iniciou || ui.mutedSfx) return;
-	if (arquivo != lastSound && arquivo != "") {
-		var s = new Audio("sfx/" + arquivo + ".mp3");
-		if (pararMusica && ui.youtube.getPlayerState() === YT.PlayerState.PLAYING) {
-			ui.youtube.pauseVideo();
-			ui.toggleMusic_elem.classList.add("fade");
-		}
-		lastSound = arquivo;
+	if (sound != lastSound && sound != "") {
+		var s = new Audio("sfx/" + sound + ".mp3");
+		lastSound = sound;
 		s.play();
 		setTimeout(() => {
 			lastSound = "";
@@ -3279,11 +3273,11 @@ function tocar(arquivo, pararMusica) {
 }
 
 function aviso(texto) {
-	tocar("warning", false);
+	playSfx("warning");
 	setTimeout(function() {
 		alert(texto);
 		document.getElementById("start-game").blur();
-		tocar("warning", false);
+		playSfx("warning");
 	}, 150);
 }
 
@@ -3293,7 +3287,7 @@ function somCarta() {
 		var cartas = document.getElementsByClassName(classes[i]);
 		for (var j = 0; j < cartas.length; j++) {
 			if (cartas[j].id != "no_sound" && cartas[j].id != "no_hover") cartas[j].addEventListener("mouseover", function() {
-				tocar("card", false);
+				playSfx("card");
 			});
 		}
 	}
@@ -3301,12 +3295,12 @@ function somCarta() {
 	for (var i = 0; i < tags.length; i++) {
 		var rec = document.getElementsByTagName(tags[i]);
 		for (var j = 0; j < rec.length; j++) rec[j].addEventListener("mouseover", function() {
-			tocar("card", false);
+			playSfx("card");
 		});
 	}
 	var ids = ["pass-button", "toggle-music", "toggle-sfx"];
 	for (var i = 0; i < ids.length; i++) document.getElementById(ids[i]).addEventListener("mouseover", function() {
-		tocar("card", false);
+		playSfx("card");
 	});
 }
 
@@ -3315,18 +3309,18 @@ function cartaNaLinha(id, carta) {
 		if (!carta.hero) {
 			if (carta.name != "Decoy") {
 				var linha = parseInt(id.charAt(1));
-				if (linha == 1 || linha == 6) tocar("common3", false);
-				else if (linha == 2 || linha == 5) tocar("common2", false);
-				else if (linha == 3 || linha == 4) tocar("common1", false);
-			} else tocar("menu_buy", false);
-		} else tocar("hero", false);
+				if (linha == 1 || linha == 6) playSfx("common3");
+				else if (linha == 2 || linha == 5) playSfx("common2");
+				else if (linha == 3 || linha == 4) playSfx("common1");
+			} else playSfx("menu_buy");
+		} else playSfx("hero");
 	}
 }
 
 function inicio() {
 	document.getElementById("very_start_bg1").style.display = "none";
 	iniciou = true;
-	tocar("menu_opening", false);
+	playSfx("menu_opening");
 	// openFullscreen();
 	ui.initAudio();
 }
