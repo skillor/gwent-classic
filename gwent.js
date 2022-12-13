@@ -2017,15 +2017,6 @@ class UI {
 			if (ui.ytActive !== undefined)
 				return;
 			ui.ytActive = true;
-			ui.youtube.playVideo();
-			let timer = setInterval(() => {
-				if (ui.youtube.getPlayerState() !== YT.PlayerState.PLAYING)
-					ui.youtube.playVideo();
-				else {
-					clearInterval(timer);
-					ui.toggleMusic_elem.classList.remove("fade");
-				}
-			}, 500);
 		}
 	}
 
@@ -3354,6 +3345,29 @@ var iniciou = false, isLoaded = false;
 
 var playingOnline;
 
+function saveSettings() {
+	localStorage.setItem('settings', JSON.stringify({
+		'mutedMusic': ui.mutedMusic,
+		'mutedSfx': ui.mutedSfx,
+	}));
+}
+
+function loadSettings() {
+	let settings = localStorage.getItem('settings');
+	if (settings === null) return;
+	try {
+		settings = JSON.parse(settings);
+	} catch {
+		return;
+	}
+	const getSetting = (k, v) => {
+		if (k in settings) return settings[k];
+		return v;
+	};
+	ui.mutedMusic = getSetting('mutedMusic', false);
+	ui.mutedSfx = getSetting('mutedSfx', false);
+}
+
 window.onload = function() {
 	dimensionar();
 	playingOnline = true;
@@ -3363,6 +3377,7 @@ window.onload = function() {
 	document.getElementById("toggle-music").style.display = "";
 	document.getElementById("toggle-sfx").style.display = "";
 	document.getElementsByTagName("main")[0].style.display = "";
+	loadSettings();
 	document.getElementById("button_start").addEventListener("click", function() {
 		inicio();
 	});
@@ -3371,6 +3386,10 @@ window.onload = function() {
 
 window.onresize = function() {
 	dimensionar();
+}
+
+window.onunload = function() {
+	saveSettings();
 }
 
 function dimensionar() {
