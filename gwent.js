@@ -2638,8 +2638,8 @@ class DeckMaker {
 			}
 		});
 		somCarta();
-
-		this.update();
+		
+		if (!this.loadDeckLocal()) this.update();
 	}
 
 	// Called when client selects a deck faction. Clears previous cards and makes valid cards available.
@@ -2897,6 +2897,17 @@ class DeckMaker {
 		this.stats = {};
 	}
 
+	saveDeckLocal() {
+		localStorage.setItem('last_deck', this.deckToJSON());
+	}
+
+	loadDeckLocal() {
+		const t = localStorage.getItem('last_deck');
+		if (t === null) return false;
+		this.deckFromJSON(t);
+		return true;
+	}
+
 	// Verifies current deck, creates the players and their decks, then starts a new game
 	startNewGame() {
 		// openFullscreen();
@@ -2908,6 +2919,8 @@ class DeckMaker {
 		if (warning != "") {
 			return aviso(warning);
 		}
+
+		this.saveDeckLocal();
 
 		let me_deck = {
 			faction: this.faction,
@@ -2978,7 +2991,7 @@ class DeckMaker {
 		try {
 			deck = JSON.parse(json);
 		} catch (e) {
-			aviso("Uploaded deck is not parsable!");
+			aviso("Deck is not parsable!");
 			return;
 		}
 		let warning = "";
