@@ -1494,6 +1494,7 @@ class Game {
 	// Sets initializes player abilities, player hands and redraw
 	async startGame() {
 		ui.toggleMusic_elem.classList.remove("music-customization");
+		ui.toggleSfx_elem.classList.remove("music-customization");
 		var white_flame = this.initPlayers(player_me, player_op);
 		await Promise.all([...Array(10).keys()].map(async () => {
 			await player_me.deck.draw(player_me.hand);
@@ -1650,18 +1651,19 @@ class Game {
 
 	// Returns the client to the deck customization screen
 	returnToCustomization() {
-		iniciarMusica();
+		initAudio();
 		this.reset();
 		player_me.reset();
 		player_op.reset();
 		ui.toggleMusic_elem.classList.add("music-customization");
+		ui.toggleSfx_elem.classList.add("music-customization");
 		this.endScreen.classList.add("hide");
 		document.getElementById("deck-customization").classList.remove("hide");
 	}
 
 	// Restarts the last game with the dame decks
 	restartGame() {
-		iniciarMusica();
+		initAudio();
 		limpar();
 		this.reset();
 		player_me.reset();
@@ -1923,6 +1925,8 @@ var load_pass = load_passT,
 // Handles notifications and client interration with menus
 class UI {
 	constructor() {
+		this.mutedSfx = false;
+		this.mutedMusic = false;
 		this.carousels = [];
 		this.notif_elem = document.getElementById("notification-bar");
 		this.preview = document.getElementsByClassName("card-preview")[0];
@@ -1969,6 +1973,9 @@ class UI {
 		this.toggleMusic_elem = document.getElementById("toggle-music");
 		this.toggleMusic_elem.classList.add("fade");
 		this.toggleMusic_elem.addEventListener("click", () => this.toggleMusic(), false);
+		this.toggleSfx_elem = document.getElementById("toggle-sfx");
+		this.toggleSfx_elem.classList.add("fade");
+		this.toggleSfx_elem.addEventListener("click", () => this.toggleSfx(), false);
 	}
 
 	passLoad() {
@@ -2022,13 +2029,46 @@ class UI {
 		}
 	}
 
+	initAudio() {
+		this.setMusic();
+		this.setSfx();
+	}
+
 	// Called when client toggles the music
 	toggleMusic() {
-		if (this.youtube.getPlayerState() !== YT.PlayerState.PLAYING) iniciarMusica();
-		else {
+		this.setMusic();
+	}
+	
+	setMusic() {
+		if (this.mutedMusic) {
 			this.youtube.pauseVideo();
 			this.toggleMusic_elem.classList.add("fade");
+		} else {
+			try {
+				if (this.youtube.getPlayerState() !== YT.PlayerState.PLAYING) this.youtube.playVideo();
+				this.toggleMusic_elem.classList.remove("fade");
+			} catch(err) {}
 		}
+	}
+
+	// Called when client toggles the music
+	toggleMusic() {
+		this.mutedMusic = !this.mutedMusic;
+		this.setMusic();
+	}
+
+	setSfx() {
+		if (this.mutedSfx) {
+			this.toggleSfx_elem.classList.add("fade");
+		} else {
+			this.toggleSfx_elem.classList.remove("fade");
+		}
+	}
+
+	// Called when client toggles sfx
+	toggleSfx() {
+		this.mutedSfx = !this.mutedSfx;
+		this.setSfx();
 	}
 
 	// Called when the player selects a selectable card
@@ -3232,6 +3272,7 @@ function openFullscreen() {
 var lastSound = "";
 
 function tocar(arquivo, pararMusica) {
+	if (!iniciou || ui.mutedSfx) return;
 	if (arquivo != lastSound && arquivo != "") {
 		var s = new Audio("sfx/" + arquivo + ".mp3");
 		if (pararMusica && ui.youtube.getPlayerState() === YT.PlayerState.PLAYING) {
@@ -3239,8 +3280,8 @@ function tocar(arquivo, pararMusica) {
 			ui.toggleMusic_elem.classList.add("fade");
 		}
 		lastSound = arquivo;
-		if (iniciou) s.play();
-		setTimeout(function() {
+		s.play();
+		setTimeout(() => {
 			lastSound = "";
 		}, 50);
 	}
@@ -3272,7 +3313,7 @@ function somCarta() {
 			tocar("card", false);
 		});
 	}
-	var ids = ["pass-button", "toggle-music"];
+	var ids = ["pass-button", "toggle-music", "toggle-sfx"];
 	for (var i = 0; i < ids.length; i++) document.getElementById(ids[i]).addEventListener("mouseover", function() {
 		tocar("card", false);
 	});
@@ -3292,21 +3333,11 @@ function cartaNaLinha(id, carta) {
 }
 
 function inicio() {
-	var classe = document.getElementsByClassName("abs");
-	for (var i = 0; i < classe.length; i++) classe[i].style.display = "none";
+	document.getElementById("very_start_bg1").style.display = "none";
 	iniciou = true;
 	tocar("menu_opening", false);
 	// openFullscreen();
-	iniciarMusica();
-}
-
-function iniciarMusica() {
-	try {
-		if (ui.youtube.getPlayerState() !== YT.PlayerState.PLAYING) {
-			ui.youtube.playVideo();
-			ui.toggleMusic_elem.classList.remove("fade");
-		}
-	} catch(err) {}
+	ui.initAudio();
 }
 
 function cancelaClima() {
@@ -3330,6 +3361,7 @@ window.onload = function() {
 	document.getElementById("button_start").style.display = "inline-block";
 	document.getElementById("deck-customization").style.display = "";
 	document.getElementById("toggle-music").style.display = "";
+	document.getElementById("toggle-sfx").style.display = "";
 	document.getElementsByTagName("main")[0].style.display = "";
 	document.getElementById("button_start").addEventListener("click", function() {
 		inicio();
