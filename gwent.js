@@ -2881,7 +2881,7 @@ class DeckMaker {
 
 	// Verifies current deck, creates the players and their decks, then starts a new game
 	startNewGame() {
-		openFullscreen();
+		// openFullscreen();
 		let warning = "";
 		if (this.stats.units < 22)
 			warning += "Your deck must have at least 22 unit cards. \n";
@@ -2950,7 +2950,7 @@ class DeckMaker {
 		}
 		fr.readAsText(files.item(0));
 		document.getElementById("add-file").value = "";
-		openFullscreen();
+		// openFullscreen();
 	}
 
 	// Creates a deck from a JSON file's contents and sets that as the current deck
@@ -3307,7 +3307,7 @@ function inicio() {
 	for (var i = 0; i < classe.length; i++) classe[i].style.display = "none";
 	iniciou = true;
 	tocar("menu_opening", false);
-	openFullscreen();
+	// openFullscreen();
 	iniciarMusica();
 }
 
