@@ -2569,7 +2569,7 @@ class Popup {
 	}
 }
 
-var carta_selecionada = null;
+var deckmakerSelectedCard = null;
 
 // Screen used to customize, import and export deck contents
 class DeckMaker {
@@ -2720,18 +2720,31 @@ class DeckMaker {
 		count.innerHTML = bankID.count;
 		cards.push(bankID);
 		let cardIndex = cards.length - 1;
-		elem.addEventListener("dblclick", () => this.select(cardIndex, isBank), false);
-		elem.addEventListener("mouseover", () => {
-			var aux = this;
-			carta_selecionada = function() {
-				aux.select(cardIndex, isBank);
-			}
-		}, false);
-		window.addEventListener("keydown", function (e) {
-			if (e.keyCode == 13 && carta_selecionada !== null) carta_selecionada();
-		});
 
-		return bankID;
+		const selectCard = () => {
+			if (deckmakerSelectedCard !== null && !deckmakerSelectedCard.addingCard) {
+				deckmakerSelectedCard.addingCard = true;
+				setTimeout(() => {
+					if (deckmakerSelectedCard !== null) {
+						deckmakerSelectedCard.addingCard = false;
+						this.select(deckmakerSelectedCard.cardIndex, deckmakerSelectedCard.isBank);
+					}
+				}, 100);
+			}
+		}
+
+		elem.addEventListener("dblclick", () => {
+			selectCard();
+		}, false);
+		window.addEventListener("keypress", (e) => {
+			if (e.keyCode == 13) selectCard();
+		});
+		elem.addEventListener("mouseover", () => {
+			deckmakerSelectedCard = {cardIndex, isBank, addingCard: false};
+		}, false);
+		elem.addEventListener('mouseout', () => {
+			deckmakerSelectedCard = null;
+		}, false);
 	}
 
 	// Updates the card preview elements when any changes are made to the deck
@@ -2831,7 +2844,6 @@ class DeckMaker {
 
 	// Called when client selects s a preview card. Moves it from bank to deck or vice-versa then updates;
 	select(index, isBank) {
-		carta_selecionada = null;
 		if (isBank) {
 			tocar("menu_buy", false);
 			this.add(index, this.deck);
@@ -3324,7 +3336,7 @@ var playingOnline;
 
 window.onload = function() {
 	dimensionar();
-	playingOnline = window.location.href == "https://randompianist.github.io/gwent-classic-v2.0/";
+	playingOnline = true;
 	document.getElementById("load_text").style.display = "none";
 	document.getElementById("button_start").style.display = "inline-block";
 	document.getElementById("deck-customization").style.display = "";
@@ -3350,4 +3362,4 @@ function dimensionar() {
 	) + "px";
 }
 
-setTimeout(dimensionar(), 300);
+setTimeout(dimensionar(), 1);
