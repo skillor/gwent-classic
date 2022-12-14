@@ -77,6 +77,7 @@ class ControllerPlayer extends Controller {
 			"Would you like to go first?",
 			"The Scoia'tael faction perk allows you to decide who will get to go first."
 		);
+		await this.sendEvent('chooseFirst', {id: game.firstPlayer.id});
 	}
 
 	async initialRedraw() {
@@ -141,6 +142,12 @@ class ControllerRemote extends Controller {
 			let card = this.player.hand.cards[i];
 			this.player.deck.swap(this.player.hand, this.player.hand.removeCard(card));
 		});
+	}
+
+	async chooseFirst() {
+		let e = await this.getEvent('chooseFirst');
+		if (+this.player.id === +e.id) game.firstPlayer = this.player;
+		else game.firstPlayer = this.player.opponent();
 	}
 
 	async startTurn() {
