@@ -1251,7 +1251,7 @@ class Row extends CardContainer {
 	async leaderHorn() {
 		if (this.special !== null)
 			return;
-		let horn = new Card(card_dict[5], null);
+		let horn = new Card(card_dict[2], null);
 		await this.addCard(horn);
 		game.roundEnd.push(() => this.removeCard(horn));
 	}
