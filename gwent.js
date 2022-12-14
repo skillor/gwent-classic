@@ -9,6 +9,17 @@ class Controller {
 		this.player = player;
 	}
 
+	async chooseFirst() {
+		await ui.popup(
+			"Go First [E]",
+			() => game.firstPlayer = this.player,
+			"Let Opponent Start [Q]",
+			() => game.firstPlayer = this.player.opponent(),
+			"Would you like to go first?",
+			"The Scoia'tael faction perk allows you to decide who will get to go first."
+		);
+	}
+
 	async initialRedraw() {
 		await ui.queueCarousel(this.player.hand, 2, async (c, i) => await this.player.deck.swap(c, c.removeCard(i)), c => true, true, true, "Choose up to 2 cards to redraw.");
 	}
@@ -60,6 +71,10 @@ class ControllerAI {
 		this.player = player;
 	}
 
+	async chooseFirst() {
+		game.firstPlayer = this.player.opponent();
+	}
+
 	async initialRedraw() {
 		for (let i = 0; i < 2; i++)
 			this.redraw();
@@ -73,7 +88,7 @@ class ControllerAI {
 	}
 
 	async drawFromPile(card, pile, n=1, pileFilter=()=>true) {
-		let newCards = this.discardOrder(pile.filter(pileFilter)).reverse().splice(0, n);
+		let newCards = this.discardOrder(pile.cards.filter(pileFilter)).reverse().splice(0, n);
 		newCards.forEach(newCard => newCard.holder = this.player);
 		await Promise.all(newCards.map(async c => await board.toHand(c, pile)));
 	}
@@ -561,7 +576,7 @@ class Player {
 		this.tag = (id === 0) ? "me" : "op";
 		this.controller = new controllserCls(this);
 
-		this.hand = (id === 0) ? new Hand(document.getElementById("hand-row")) : new HandAI();
+		this.hand = (id === 0) ? new Hand(document.getElementById("hand-row")) : new HandEnemy();
 		this.grave = new Grave(document.getElementById("grave-" + this.tag));
 		this.deck = new Deck(deck.faction, document.getElementById("deck-" + this.tag));
 		this.deck_data = deck;
@@ -1054,7 +1069,7 @@ class Deck extends CardContainer {
 }
 
 // Hand used by computer AI. Has an offscreen HTML element for card transitions.
-class HandAI extends CardContainer {
+class HandEnemy extends CardContainer {
 	constructor() {
 		super(undefined);
 		this.counter = document.getElementById("hand-count-op");
@@ -1529,7 +1544,7 @@ class Game {
 		board.row.forEach(r => r.reset());
 	}
 
-	// Sets up player faction abilities and psasive leader abilities
+	// Sets up player faction abilities and passive leader abilities
 	initPlayers(p1, p2) {
 		let l1 = ability_dict[p1.leader.abilities[0]];
 		let l2 = ability_dict[p2.leader.abilities[0]];
@@ -1586,8 +1601,8 @@ class Game {
 
 	// Allows the player to swap out up to two cards from their iniitial hand
 	async initialRedraw() {
-		await player_me.controller.initialRedraw()
-		await player_op.controller.initialRedraw()
+		await player_me.controller.initialRedraw();
+		await player_op.controller.initialRedraw();
 		ui.enablePlayer(false);
 		game.startRound();
 	}
@@ -2669,27 +2684,52 @@ class DeckMaker {
 			this.style.boxShadow = "0 0 0 #6d5210"
 		});
 
-		let start_deck = DeckMaker.deckFromObj(premade_decks[0]);
-		this.faction = start_deck.faction;
-		this.setFaction(this.faction, true);
-		this.setLeader(start_deck.leader);
-		this.makeBank(this.faction, start_deck.cards);
-
 		this.change_elem = document.getElementById("change-faction");
 		this.change_elem.addEventListener("click", () => this.selectFaction(), false);
 
 		document.getElementById("download-deck").addEventListener("click", () => this.downloadDeck(), false);
 		document.getElementById("add-file").addEventListener("change", () => this.uploadDeck(), false);
-		document.getElementById("start-game").addEventListener("click", () => this.startNewGame(), false);
+
+		let deck_options = document.getElementById("select-deck-options");
+		let deck_ai_options = document.getElementById("select-ai-deck-options");
+		premade_decks.forEach((d, i) => {
+			let option = document.createElement("option");
+			option.value = i;
+			if ('name' in d) option.text = d.name;
+			else option.text = card_dict[d.leader].name;
+			deck_options.add(option);
+			deck_ai_options.add(option.cloneNode(true));
+		});
+		deck_ai_options.value = ''+randomInt(premade_decks.length);
+
+		document.getElementById("select-deck").addEventListener("click", () => {
+			if (deck_options.value === '') return;
+			this.loadDeck(DeckMaker.deckFromObj(premade_decks[+deck_options.value]));
+			deck_options.value = '';
+		}, false);
+
+		document.getElementById("start-game").addEventListener("click", () => {
+			if (!this.confirmInvalidDeck()) return;
+			this.startNewGame(
+				new Player(0, username, this.startGetDeck(), Controller), 
+				new Player(1, "Player 2", DeckMaker.getAIDeck(), ControllerAI)
+			);
+		}, false);
+
 		document.getElementById("challenge-game").addEventListener("submit", () => this.sendChallenge(), false);
-		window.addEventListener("keydown", function (e) {
+
+		window.addEventListener("keydown", (e) => {
 			if (document.getElementById("deck-customization").className.indexOf("hide") == -1) {
 				switch(e.keyCode) {
 					case 69:
-						try {
-							Carousel.curr.cancel();
-						} catch(err) {}
-						if (isLoaded && iniciou) dm.startNewGame();
+						Carousel.cancelCurr();
+						if (isLoaded && iniciou) {
+							if (!this.confirmInvalidDeck()) return;
+							this.startNewGame(
+								new Player(0, username, this.startGetDeck(), Controller), 
+								new Player(1, "Player 2", DeckMaker.getAIDeck(), ControllerAI)
+							);
+						}
 						break;
 					case 88:
 						if (document.getElementById("carousel").className == "hide") dm.selectLeader();
@@ -2699,7 +2739,7 @@ class DeckMaker {
 		});
 		somCarta();
 		
-		if (!this.loadDeckLocal()) this.update();
+		this.loadDeckLocal();
 	}
 
 	setLeader(leader) {
@@ -2713,7 +2753,7 @@ class DeckMaker {
 			return false;
 		if (!silent) {
 			playSfx("warning");
-			if (!confirm("Changing factions will clear the current deck. Continue? ")) {
+			if (!confirm("Changing factions will clear the current deck. Continue?")) {
 				playSfx("warning");
 				return false;
 			}
@@ -2953,56 +2993,69 @@ class DeckMaker {
 	}
 
 	loadDeckLocal() {
-		const t = localStorage.getItem('last_deck');
-		if (t === null) return false;
-		this.deckFromJSON(t);
-		return true;
+		let t = localStorage.getItem('last_deck');
+		if (t !== null) return this.loadDeck(this.deckFromJSON(t));
+		return this.loadDeck(DeckMaker.deckFromObj(premade_decks[0]));
 	}
 
 	sendChallenge() {
 		var conn = peer.connect(document.getElementById('challenge-user-id').value, {metadata: {username: username}});
-		conn.on('open', function() {
+		conn.on('open', () => {
+			peerConnection = conn;
+			isChallenger = true;
 			conn.on('data', (data) => {
-				if (data.type == 'accept') {
-					
-				}
 				console.log(data);
+
+				if (data.type === 'accept') {
+					const opp_deck = DeckMaker.deckFromObj(data.deck);
+					dm.startNewGame(
+						new Player(),
+					)
+					conn.send({type: 'start', deck: dm.deckToObj()});
+					return;
+				}
 			});
 
 			console.log(conn);
-			peerConnection = conn;
 		});
 	}
 
-	// Verifies current deck, creates the players and their decks, then starts a new game
-	startNewGame() {
-		// openFullscreen();
-		let warning = "";
-		if (this.stats.units < 22)
-			warning += "Your deck must have at least 22 unit cards. \n";
-		if (this.stats.special > 10)
-			warning += "Your deck must have no more than 10 special cards. \n";
-		if (warning != "") {
-			return aviso(warning);
+	confirmInvalidDeck() {
+		const warning = DeckMaker.validateDeck(this.getDeck());
+		if (warning !== '') {
+			return confirm(warning + 'Continue?');
 		}
+		return true;
+	}
 
-		this.saveDeckLocal();
+	// Verifies current deck, creates the players and their decks, then starts a new game
+	startNewGame(player1, player2) {
+		// openFullscreen();
 
-		let me_deck = {
-			faction: this.faction,
-			leader: card_dict[this.leader.id],
-			cards: this.deck.filter(x => x.count > 0)
-		};
-
-		let op_deck = DeckMaker.deckFromObj(premade_decks[randomInt(premade_decks.length)]);
-
-		player_me = new Player(0, username, me_deck, Controller);
-		player_op = new Player(1, "Player 2", op_deck, ControllerAI);
+		player_me = player1;
+		player_op = player2;
 
 		this.elem.classList.add("hide");
 		called_leader = false;
 		playSfx("game_opening");
 		game.startGame();
+	}
+
+	static getAIDeck() {
+		return DeckMaker.deckFromObj(premade_decks[+document.getElementById('select-ai-deck-options').value]);
+	}
+
+	startGetDeck() {
+		this.saveDeckLocal();
+		return this.getDeck();
+	}
+
+	getDeck() {
+		return {
+			faction: this.faction,
+			leader: card_dict[this.leader.id],
+			cards: this.deck.filter(x => x.count > 0)
+		};
 	}
 
 	// Converts the current deck to a object
@@ -3025,7 +3078,7 @@ class DeckMaker {
 		let str = "data:text/json;charset=utf-8," + encodeURIComponent(json);
 		let hidden_elem = document.getElementById('download-json');
 		hidden_elem.href = str;
-		hidden_elem.download = "MyGwentDeck.json";
+		hidden_elem.download = this.faction + ".json";
 		hidden_elem.click();
 	}
 
@@ -3037,7 +3090,7 @@ class DeckMaker {
 		let fr = new FileReader();
 		fr.onload = e => {
 			try {
-				this.deckFromJSON(e.target.result);
+				this.loadDeck(this.deckFromJSON(e.target.result));
 			} catch (e) {
 				console.error(e);
 				aviso("Uploaded deck is not formatted correctly!");
@@ -3049,6 +3102,7 @@ class DeckMaker {
 	}
 
 	static deckFromObj(obj) {
+		obj = {...obj};
 		obj.cards = obj.cards.map(c => ({
 			id: c[0],
 			count: c[1],
@@ -3072,6 +3126,12 @@ class DeckMaker {
 		else if (deck.leader.row !== "leader")
 			warning += "'" + card_dict[deck.leader].name + "' is cannot be used as a leader\n";
 
+		let total = 0,
+			units = 0,
+			special = 0,
+			strength = 0,
+			hero = 0;
+
 		deck.cards.forEach(c => {
 			let card = card_dict[c.id];
 			if (!card) {
@@ -3086,20 +3146,38 @@ class DeckMaker {
 				warning += "Deck contains " + c.id + "/" + card.count + " available " + card_dict[c.id].name + " cards\n";
 				return;
 			}
+
+			total += c.count;
+			if (card.deck === "special" || card.deck === "weather") {
+				special += c.count;
+				return;
+			}
+			units += c.count;
+			strength += card.strength * c.count;
+			if (card.ability.split(" ").includes("hero")) hero += c.count;
 		});
+
+		if (units < 22)
+			warning += "Your deck must have at least 22 unit cards. \n";
+		if (special > 10)
+			warning += "Your deck must have no more than 10 special cards. \n";
+
 		return warning;
 	}
 
 	// Creates a deck from a JSON file's contents and sets that as the current deck
 	// Notifies client with warnings if the deck is invalid
 	deckFromJSON(json) {
-		let deck;
 		try {
-			deck = DeckMaker.deckFromObj(JSON.parse(json));
+			return DeckMaker.deckFromObj(JSON.parse(json));
 		} catch (e) {
 			aviso("Deck is not parsable!");
-			return;
+			return null;
 		}
+	}
+
+	loadDeck(deck) {
+		if (deck === null) return;
 		let warning = DeckMaker.validateDeck(deck);
 
 		if (warning) {
@@ -3170,7 +3248,7 @@ async function translateTo(card, container_source, container_dest) {
 
 	// Returns the source container's element to transition from
 	function getSourceElem(card, source, dest) {
-		if (source instanceof HandAI)
+		if (source instanceof HandEnemy)
 			return source.hidden_elem;
 		if (source instanceof Deck)
 			return source.elem.children[source.elem.children.length - 2];
@@ -3179,7 +3257,7 @@ async function translateTo(card, container_source, container_dest) {
 
 	// Returns the destination container's element to transition to
 	function getDestinationElem(card, source, dest) {
-		if (dest instanceof HandAI)
+		if (dest instanceof HandEnemy)
 			return dest.hidden_elem;
 		if (card.isSpecial() && dest instanceof Row)
 			return dest.elem_special;
@@ -3421,13 +3499,16 @@ function initializeGame() {
 			conn.close();
 			return;
 		}
-		conn.on('open', function() {
-			// conn.on('data', function(data) {
-			//   console.log('Received', data);
-			// });
-		
-			console.log(conn);
+		conn.on('open', () => {
+			conn.on('data', (data) => {
+				console.log(data);
+
+				if (data.type === 'start') {
+					return;
+				}
+			});
 			peerConnection = conn;
+			isChallenger = false;
 			peerConnection.send({type: 'accept', username: username, deck: dm.deckToObj()});
 		});
 	});
@@ -3447,6 +3528,7 @@ function cancelaClima() {
 }
 
 var peer = null;
+var isChallenger = false;
 var peerConnection = null;
 var iniciou = false, isLoaded = false;
 

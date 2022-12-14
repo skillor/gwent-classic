@@ -246,7 +246,10 @@ var ability_dict = {
 		name: "Eredin : Bringer of Death",
 		description: "Restore a card from your discard pile to your hand.",
 		activated: async card => {
-			await card.holder.controller.drawFromPile(card, card.holder.grave, 1, (c) => c.isUnit());
+			let grave = board.getRow(card, "grave", card.holder);
+			if (grave.findCards(c => c.isUnit()).length === 0)
+				return;
+			await card.holder.controller.drawFromPile(card, grave, 1, (c) => c.isUnit());
 		},
 		weight: (card, ai, max, data) => ai.weightMedic(data, 0, card.holder)
 	},

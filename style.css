@@ -1169,19 +1169,33 @@ html {
 	position: absolute;
 	font-size: 1vw;
 	color: #fff;
-	top: 15%
-}
-
-#download-deck {
-	left: 55%
 }
 
 #upload-deck {
-	left: 40%
+	top: 8.4vw;
+    left: 35vw;
+}
+
+#download-deck {
+	top: 8.4vw;
+    left: 42vw;
 }
 
 #change-faction {
-	left: 47%
+	top: 10.3vw;
+    left: 46.5vw;
+}
+
+#select-deck-options {
+	width: 10vw;
+	background: #141414;
+	top: 8.2vw;
+    left: 50vw;
+}
+
+#select-deck {
+	top: 8.4vw;
+    left: 61vw;
 }
 
 .card-array {
@@ -1298,20 +1312,29 @@ html {
 	background-image: url(img/icons/deck_stats_hero.png)
 }
 
+#select-ai-deck-options {
+	position: absolute;
+	width: 10vw;
+	background: #141414;
+	border-color: #1e1e1e;
+	top: 49vw;
+    left: 44.65vw;
+}
+
 #start-game {
 	position: absolute;
-	top: 86%;
-	left: 46.65%;
-	width: 6%;
-	height: 3%;
+	top: 51vw;
+    left: 46.65vw;
+	width: 6vw;
+	height: 2vw;
 	font-size: .98vw
 }
 
 .start-game_class {
 	white-space: nowrap;
 	color: #fff;
-	background-color: rgb(20, 20, 20);
-	border: .1vw ridge rgb(30, 30, 30)
+	background-color: #141414;
+	border: .1vw ridge #1e1e1e;
 }
 
 .card-contianer-title {
