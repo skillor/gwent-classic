@@ -2146,5 +2146,3 @@ var card_dict = Object.fromEntries(card_list.map(c => {
 	if (_ids.includes(c.id)) console.warn('duplicate card id:', c.id); _ids.push(c.id); return [c.id, c]
 }));
 delete _ids;
-
-console.log(JSON.stringify(card_list));
