@@ -1,14 +1,73 @@
 "use strict"
 
 class Controller {
+	async sendEvent(type, data={}) {
+		if (peerConnection !== null) peerConnection.send({
+			...data,
+			type: type,
+		});
+	}
+
+	async getEvent(type, msSleep=100) {
+		while (true) {
+			for (let i=0; i<peerConnQueue.length; i++) {
+				const e = peerConnQueue[i];
+				if (e.type === type) {
+					peerConnQueue.splice(i, 1);
+					delete e.type;
+					return e;
+				}
+			}
+			if (msSleep < 0) return null;
+			await sleep(msSleep);
+		}
+	}
+
+	async randomInt(key, n) {
+		// const r = randomInt(n);
+		const r = n-1;
+		await this.sendEvent(key, {result: r});
+		console.log('sending randint', key, n, r);
+		return r;
+	}
+
 	weightWeatherFromDeck(card, weather_id) {
 		return 0;
 	}
-	
-	constructor(player) {
-		this.player = player;
+
+	async getPlayerState() {
+		return {
+			deck: this.player.deck.serialize(),
+			hand: this.player.hand.serialize(),
+		};
 	}
 
+	async getGameState() {
+		return {
+			host: await controllingPlayer().controller.getPlayerState(),
+			client: await controllingPlayer().opponent().controller.getPlayerState(),
+		};
+	}
+
+	async validateState() {
+		if (peerConnection === null) return;
+		await this.sendEvent('reqGameState');
+		let a = JSON.stringify(await this.getGameState());
+		let b = JSON.stringify(await this.getEvent('resGameState'));
+		console.log('state', a === b, a, b);
+	}
+
+	constructor(player) {
+		this.player = player;
+
+		setInterval(async () => {
+			const e = await this.getEvent('reqGameState', -1);
+			if (e !== null) await this.sendEvent('resGameState', await this.getGameState());
+		}, 500);
+	}
+}
+
+class ControllerPlayer extends Controller {
 	async chooseFirst() {
 		await ui.popup(
 			"Go First [E]",
@@ -21,7 +80,12 @@ class Controller {
 	}
 
 	async initialRedraw() {
-		await ui.queueCarousel(this.player.hand, 2, async (c, i) => await this.player.deck.swap(c, c.removeCard(i)), c => true, true, true, "Choose up to 2 cards to redraw.");
+		let redrawnCards = [];
+		await ui.queueCarousel(this.player.hand, 2, async (c, i) => {
+			await this.player.deck.swap(c, c.removeCard(i));
+			redrawnCards.push(i);
+		}, c => true, true, true, "Choose up to 2 cards to redraw.");
+		await this.sendEvent('initialRedraw', {redrawnCards: redrawnCards});
 	}
 
 	async startTurn() {
@@ -63,14 +127,30 @@ class Controller {
 	}
 }
 
+class ControllerRemote extends Controller {
+	async randomInt(key, n) {
+		// const r = await this.getEvent(key).result;
+		const r = n - 1;
+		console.log('receiving randint', key, n, r);
+		return r;
+	}
+
+	async initialRedraw() {
+		let e = await this.getEvent('initialRedraw');
+		e.redrawnCards.forEach(i => {
+			let card = this.player.hand.cards[i];
+			this.player.deck.swap(this.player.hand, this.player.hand.removeCard(card));
+		});
+	}
+
+	async startTurn() {
+	}
+}
+
 var nilfgaard_wins_draws = false;
 
 // Makes decisions for the AI opponent player
-class ControllerAI {
-	constructor(player) {
-		this.player = player;
-	}
-
+class ControllerAI extends Controller {
 	async chooseFirst() {
 		game.firstPlayer = this.player.opponent();
 	}
@@ -571,12 +651,12 @@ var may_leader = true,
 
 // Can make actions during turns like playing cards that it owns
 class Player {
-	constructor(id, name, deck, controllserCls) {
+	constructor(id, tag, name, deck, controllserCls) {
 		this.id = id;
-		this.tag = (id === 0) ? "me" : "op";
+		this.tag = tag;
 		this.controller = new controllserCls(this);
 
-		this.hand = (id === 0) ? new Hand(document.getElementById("hand-row")) : new HandEnemy();
+		this.hand = (tag === 'me') ? new Hand(document.getElementById("hand-row")) : new HandEnemy();
 		this.grave = new Grave(document.getElementById("grave-" + this.tag));
 		this.deck = new Deck(deck.faction, document.getElementById("deck-" + this.tag));
 		this.deck_data = deck;
@@ -584,8 +664,6 @@ class Player {
 		this.leader = new Card(deck.leader, this);
 		this.elem_leader = document.getElementById("leader-" + this.tag);
 		this.elem_leader.children[0].appendChild(this.leader.elem);
-
-		this.reset();
 
 		this.name = name;
 		document.getElementById("name-" + this.tag).innerHTML = name;
@@ -597,11 +675,11 @@ class Player {
 	}
 
 	// Sets default values
-	reset() {
+	async reset() {
 		this.grave.reset();
 		this.hand.reset();
 		this.deck.reset();
-		this.deck.initializeFromID(this.deck_data.cards, this);
+		await this.deck.initializeFromID(this.deck_data.cards, this);
 
 		this.health = 2;
 		this.total = 0;
@@ -743,7 +821,7 @@ class Player {
 		this.elem_leader.children[0].classList.remove("fade");
 		this.elem_leader.children[1].classList.remove("hide");
 
-		if (this.id === 0 && this.leader.activated.length > 0) {
+		if (this.tag === 'me' && this.leader.activated.length > 0) {
 			this.elem_leader.children[0].addEventListener("click",
 				async () => await ui.viewCard(this.leader, async () => await this.activateLeader()),
 					false
@@ -803,6 +881,10 @@ class CardContainer {
 		this.cards = [];
 	}
 
+	serialize() {
+		return this.cards.map(c => c.id);
+	}
+
 	// Returns the first card that satisfies the predcicate. Does not modify container.
 	findCard(predicate) {
 		for (let i = this.cards.length - 1; i >= 0; --i)
@@ -816,15 +898,15 @@ class CardContainer {
 	}
 
 	// Returns a list of up to n cards that satisfy the predicate. Does not modify container.
-	findCardsRandom(predicate, n) {
+	async findCardsRandom(predicate, n) {
 		let valid = predicate ? this.cards.filter(predicate) : this.cards;
 		if (valid.length === 0)
 			return [];
 		if (!n || n === 1)
-			return [valid[randomInt(valid.length)]];
+			return [valid[await multiRandomInt('findCardRandom', valid.length)]];
 		let out = [];
 		for (let i = Math.min(n, valid.length); i > 0; --i) {
-			let index = randomInt(valid.length);
+			let index = await multiRandomInt('findCardRandom', valid.length);
 			out.push(valid.splice(index, 1)[0]);
 		}
 		return out;
@@ -840,11 +922,6 @@ class CardContainer {
 		for (let i = this.cards.length - 1; i >= 0; --i)
 			if (predicate(this.cards[i]))
 				return this.removeCard(i);
-	}
-
-	// Removes and returns any cards up to n that satisfy the predicate.
-	getCardsRandom(predicate, n) {
-		return this.findCardsRandom(predicate, n).map(c => this.removeCard(c));
 	}
 
 	// Adds a card to the container along with its associated HTML element.
@@ -880,9 +957,9 @@ class CardContainer {
 	}
 
 	// Adds a card to a random index of the CardContainer
-	addCardRandom(card) {
+	async addCardRandom(card) {
 		this.cards.push(card);
-		let index = randomInt(this.cards.length);
+		let index = await multiRandomInt('addCardRandom', this.cards.length);
 		if (index !== this.cards.length - 1) {
 			let t = this.cards[this.cards.length - 1];
 			this.cards[this.cards.length - 1] = this.cards[index];
@@ -994,8 +1071,8 @@ class Deck extends CardContainer {
 	}
 
 	// Creates duplicates of cards with a count of more than one, then initializes deck
-	initializeFromID(card_id_list, player) {
-		this.initialize(card_id_list.reduce((a, c) => a.concat(clone(c.count, card_dict[c.id])), []), player);
+	async initializeFromID(card_id_list, player) {
+		await this.initialize(card_id_list.reduce((a, c) => a.concat(clone(c.count, card_dict[c.id])), []), player);
 
 		function clone(n, elem) {
 			for (var i = 0, a = []; i < n; ++i) a.push(elem);
@@ -1004,19 +1081,19 @@ class Deck extends CardContainer {
 	}
 
 	// Populates a this deck with a list of card data and associated those cards with the owner of this deck.
-	initialize(card_data_list, player) {
+	async initialize(card_data_list, player) {
 		for (let i = 0; i < card_data_list.length; ++i) {
 			let card = new Card(card_data_list[i], player);
 			card.holder = player;
-			this.addCardRandom(card);
+			await this.addCardRandom(card);
 			this.addCardElement();
 		}
 		this.resize();
 	}
 
 	// Override
-	addCard(card) {
-		this.addCardRandom(card);
+	async addCard(card) {
+		await this.addCardRandom(card);
 		this.addCardElement();
 		this.resize();
 	}
@@ -1024,10 +1101,7 @@ class Deck extends CardContainer {
 	// Sends the top card to the passed hand
 	async draw(hand) {
 		playSfx("game_buy");
-		if (hand === player_op.hand)
-			hand.addCard(this.removeCard(0));
-		else
-			await board.toHand(this.cards[0], this);
+		hand.addCard(this.removeCard(0));
 	}
 
 	// Draws a card and sends it to the container before adding a card from the container back to the deck.
@@ -1194,9 +1268,9 @@ class Row extends CardContainer {
 					this.effects[x] += activate ? 1 : -1;
 					break;
 				case "bond":
-					if (!this.effects.bond[card.id()])
-						this.effects.bond[card.id()] = 0;
-					this.effects.bond[card.id()] += activate ? 1 : -1;
+					if (!this.effects.bond[card.name])
+						this.effects.bond[card.name] = 0;
+					this.effects.bond[card.name] += activate ? 1 : -1;
 					break;
 			}
 		}
@@ -1253,7 +1327,7 @@ class Row extends CardContainer {
 			total = Math.min(1, total);
 		if (game.doubleSpyPower && card.abilities.includes("spy"))
 			total *= 2;
-		let bond = this.effects.bond[card.id()];
+		let bond = this.effects.bond[card.name];
 		if (isNumber(bond) && bond > 1)
 			total *= Number(bond);
 		total += Math.max(0, this.effects.morale + (card.abilities.includes("morale") ? -1 : 0));
@@ -1268,7 +1342,7 @@ class Row extends CardContainer {
 			return;
 		let horn = new Card(card_dict[2], null);
 		await this.addCard(horn);
-		game.roundEnd.push(() => this.removeCard(horn));
+		game.roundEnd.push(async () => this.removeCard(horn));
 	}
 
 	// Applies a local scorch effect to this row
@@ -1478,7 +1552,6 @@ class Board {
 		switch (row_name) {
 			case "weather":
 				return weather;
-				break;
 			case "close":
 				return this.row[isMe ^ isSpy ? 3 : 2];
 			case "ranged":
@@ -1578,10 +1651,17 @@ class Game {
 	async startGame() {
 		ui.toggleMusic_elem.classList.remove("music-customization");
 		ui.toggleSfx_elem.classList.remove("music-customization");
-		var white_flame = this.initPlayers(player_me, player_op);
+
+		let p1 = controllingPlayer();
+		let p2 = controllingPlayer().opponent();
+
+		await p1.reset();
+		await p2.reset();
+
+		var white_flame = this.initPlayers(p1, p2);
 		await Promise.all([...Array(10).keys()].map(async () => {
-			await player_me.deck.draw(player_me.hand);
-			await player_op.deck.draw(player_op.hand);
+			await p1.deck.draw(p1.hand);
+			await p2.deck.draw(p2.hand);
 		}));
 
 		await this.runEffects(this.gameStart);
@@ -1594,7 +1674,8 @@ class Game {
 
 	// Simulated coin toss to determine who starts game
 	async coinToss() {
-		this.firstPlayer = (Math.random() < 0.5) ? player_me : player_op;
+		let r = await multiRandomInt('coinToss', 2);
+		this.firstPlayer = (+r === +player_me.id) ? player_me : player_op;
 		await ui.notification(this.firstPlayer.tag + "-coin", 1200);
 		return this.firstPlayer;
 	}
@@ -1765,8 +1846,8 @@ class Game {
 
 // Contians information and behavior of a Card
 class Card {
-
 	constructor(card_data, player) {
+		this.id = card_data.id;
 		this.name = card_data.name;
 		this.basePower = this.power = Number(card_data.strength);
 		this.faction = card_data.deck;
@@ -1811,11 +1892,6 @@ class Card {
 			this.desc += ability_dict["hero"].description;
 
 		this.elem = this.createCardElem(this);
-	}
-
-	// Returns the identifier for this type of card
-	id() {
-		return this.name;
 	}
 
 	// Sets and displays the current power of this card
@@ -2173,6 +2249,7 @@ class UI {
 		let holder = card.holder;
 		this.hidePreview();
 		this.enablePlayer(false);
+
 		if (card.name === "Scorch") {
 			this.hidePreview();
 			await ability_dict["scorch"].activated(card);
@@ -2711,8 +2788,8 @@ class DeckMaker {
 		document.getElementById("start-game").addEventListener("click", () => {
 			if (!this.confirmInvalidDeck()) return;
 			this.startNewGame(
-				new Player(0, username, this.startGetDeck(), Controller), 
-				new Player(1, "Player 2", DeckMaker.getAIDeck(), ControllerAI)
+				new Player(0, 'me', username, this.startGetDeck(), ControllerPlayer), 
+				new Player(1, 'op', "Player 2", DeckMaker.getAIDeck(), ControllerAI)
 			);
 		}, false);
 
@@ -2726,8 +2803,8 @@ class DeckMaker {
 						if (isLoaded && iniciou) {
 							if (!this.confirmInvalidDeck()) return;
 							this.startNewGame(
-								new Player(0, username, this.startGetDeck(), Controller), 
-								new Player(1, "Player 2", DeckMaker.getAIDeck(), ControllerAI)
+								new Player(0, 'me', username, this.startGetDeck(), ControllerPlayer), 
+								new Player(1, 'op', "Player 2", DeckMaker.getAIDeck(), ControllerAI)
 							);
 						}
 						break;
@@ -2989,7 +3066,7 @@ class DeckMaker {
 	}
 
 	saveDeckLocal() {
-		localStorage.setItem('last_deck', this.deckToJSON());
+		localStorage.setItem('last_deck', DeckMaker.deckToJSON(this.getDeck()));
 	}
 
 	loadDeckLocal() {
@@ -3007,13 +3084,17 @@ class DeckMaker {
 				console.log(data);
 
 				if (data.type === 'accept') {
-					const opp_deck = DeckMaker.deckFromObj(data.deck);
+					const me_deck = dm.startGetDeck()
+					const op_deck = DeckMaker.deckFromObj(data.deck);
+					conn.send({type: 'start', deck: DeckMaker.deckToObj(me_deck)});
 					dm.startNewGame(
-						new Player(),
-					)
-					conn.send({type: 'start', deck: dm.deckToObj()});
+						new Player(1, 'me', username, me_deck, ControllerPlayer),
+						new Player(0, 'op', data.username, op_deck, ControllerRemote),
+					);
 					return;
 				}
+
+				peerConnQueue.push(data);
 			});
 
 			console.log(conn);
@@ -3051,30 +3132,32 @@ class DeckMaker {
 	}
 
 	getDeck() {
-		return {
+		const d = {
 			faction: this.faction,
 			leader: card_dict[this.leader.id],
 			cards: this.deck.filter(x => x.count > 0)
 		};
+		d.cards.sort((a, b) => a.id - b.id);
+		return d;
 	}
 
 	// Converts the current deck to a object
-	deckToObj() {
+	static deckToObj(deck) {
 		return {
-			faction: this.faction,
-			leader: this.leader.id,
-			cards: this.deck.filter(x => x.count > 0).map(x => [x.id, x.count])
+			faction: deck.faction,
+			leader: deck.leader.id,
+			cards: deck.cards.map(x => [x.id, x.count])
 		};
 	}
 
 	// Converts the current deck to a JSON string
-	deckToJSON() {
-		return JSON.stringify(this.deckToObj());
+	static deckToJSON(deck) {
+		return JSON.stringify(DeckMaker.deckToObj(deck));
 	}
 
 	// Called by the client to downlaod the current deck as a JSON file
 	downloadDeck() {
-		let json = this.deckToJSON();
+		let json = DeckMaker.deckToJSON(this.getDeck());
 		let str = "data:text/json;charset=utf-8," + encodeURIComponent(json);
 		let hidden_elem = document.getElementById('download-json');
 		hidden_elem.href = str;
@@ -3107,6 +3190,7 @@ class DeckMaker {
 			id: c[0],
 			count: c[1],
 		}));
+		obj.cards.sort((a, b) => a.id - b.id);
 
 		let leader = card_dict[obj.leader];
 		obj.leader = leader;
@@ -3351,6 +3435,10 @@ function isString(s) {
 	return typeof (s) === 'string' || s instanceof String;
 }
 
+async function multiRandomInt(key, n) {
+	return await controllingPlayer().controller.randomInt(key, n);
+}
+
 // Returns a random integer in the range [0,n)
 function randomInt(n) {
 	return Math.floor(Math.random() * n);
@@ -3500,16 +3588,26 @@ function initializeGame() {
 			return;
 		}
 		conn.on('open', () => {
+			const me_deck = dm.startGetDeck();
+
 			conn.on('data', (data) => {
 				console.log(data);
 
 				if (data.type === 'start') {
+					const op_deck = DeckMaker.deckFromObj(data.deck);
+					dm.startNewGame(
+						new Player(0, 'me', username, me_deck, ControllerPlayer),
+						new Player(1, 'op', conn.metadata.username, op_deck, ControllerRemote),
+					);
 					return;
 				}
+
+				peerConnQueue.push(data);
 			});
+
 			peerConnection = conn;
 			isChallenger = false;
-			peerConnection.send({type: 'accept', username: username, deck: dm.deckToObj()});
+			peerConnection.send({type: 'accept', username: username, deck: DeckMaker.deckToObj(me_deck)});
 		});
 	});
 	playSfx("menu_opening");
@@ -3529,7 +3627,14 @@ function cancelaClima() {
 
 var peer = null;
 var isChallenger = false;
+
+function controllingPlayer() {
+	if (isChallenger) return player_op;
+	return player_me;
+}
+
 var peerConnection = null;
+var peerConnQueue = [];
 var iniciou = false, isLoaded = false;
 
 var playingOnline;
