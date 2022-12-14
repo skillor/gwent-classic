@@ -33,7 +33,7 @@ main {
 	background-repeat: no-repeat
 }
 
-a:hover, label:hover, .hover_un:hover {
+a:hover, .hover_un:hover {
 	text-decoration:underline
 }
 
@@ -901,6 +901,7 @@ html {
 	margin-bottom: -6%;
 	overflow: hidden;
 	white-space: nowrap;
+	text-overflow: ellipsis;
 	font-size: 1.1vw;
 	font-weight: 700
 }

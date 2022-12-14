@@ -1,6 +1,56 @@
 "use strict"
 
-class Controller {}
+class Controller {
+	weightWeatherFromDeck(card, weather_id) {
+		return 0;
+	}
+	
+	constructor(player) {
+		this.player = player;
+	}
+
+	async initialRedraw() {
+		await ui.queueCarousel(this.player.hand, 2, async (c, i) => await this.player.deck.swap(c, c.removeCard(i)), c => true, true, true, "Choose up to 2 cards to redraw.");
+	}
+
+	async startTurn() {
+		document.getElementById("pass-button").classList.remove("noclick");
+		may_pass1 = true;
+	}
+
+	async chooseMedic(card, grave) {
+		let t = [null];
+		await ui.queueCarousel(grave, 1, (c, i) => t[0]=c.cards[i], c => c.isUnit(), true);
+		return t[0];
+	}
+
+	async lookAtCards(cards) {
+		let container = new CardContainer();
+		container.cards = cards;
+		Carousel.cancelCurr();
+		await ui.viewCardsInContainer(container);
+	}
+
+	async drawFromPile(card, pile, n=1, pileFilter=()=>true) {
+		Carousel.cancelCurr();
+		await ui.queueCarousel(pile, n, async (c,i) => {
+			let newCard = c.cards[i];
+			newCard.holder = this.player;
+			await board.toHand(newCard, pile);
+		}, pileFilter, true);
+	}
+
+	async discardCards(pile, n) {
+		Carousel.cancelCurr();
+		await ui.queueCarousel(pile, n, (c,i) => board.toGrave(c.cards[i], pile), () => true);
+	}
+
+	async helperChoices(source, choices, n) {
+		let container = new CardContainer();
+		container.cards = choices;
+		await ui.queueCarousel(container, n, async (c,i) => await board.toRow(c.cards[i], source), () => true, true);
+	}
+}
 
 var nilfgaard_wins_draws = false;
 
@@ -10,42 +60,70 @@ class ControllerAI {
 		this.player = player;
 	}
 
+	async initialRedraw() {
+		for (let i = 0; i < 2; i++)
+			this.redraw();
+	}
+
+	async chooseMedic(card, grave) {
+		return this.medic(card, grave);
+	}
+
+	async lookAtCards(cards) {
+	}
+
+	async drawFromPile(card, pile, n=1, pileFilter=()=>true) {
+		let newCards = this.discardOrder(pile.filter(pileFilter)).reverse().splice(0, n);
+		newCards.forEach(newCard => newCard.holder = this.player);
+		await Promise.all(newCards.map(async c => await board.toHand(c, pile)));
+	}
+
+	async discardCards(pile, n) {
+		let cards = card.holder.controller.discardOrder(pile).splice(0, n);
+		await Promise.all(cards.map(async c => await board.toGrave(c, pile)));
+	}
+
+	async helperChoices(source, choices, n) {
+		let cards = choices.splice(0, n);
+		await Promise.all(cards.map(async c => await board.toRow(c, source)));
+	}
+
 	// Collects data and weighs options before taking a weighted random action
-	async startTurn(player) {
-		if (player.opponent().passed && (player.winning || player.deck.faction === "nilfgaard" && player.total === player.opponent().total)) {
-			nilfgaard_wins_draws = player.deck.faction === "nilfgaard" && player.total === player.opponent().total;
-			await player.passRound();
+	async startTurn() {
+		if (this.player.opponent().passed && (this.player.winning || this.player.deck.faction === "nilfgaard" && this.player.total === this.player.opponent().total)) {
+			nilfgaard_wins_draws = this.player.deck.faction === "nilfgaard" && this.player.total === this.player.opponent().total;
+			await this.player.passRound();
 			return;
 		}
 		let data_max = this.getMaximums();
 		let data_board = this.getBoardData();
-		let weights = player.hand.cards.map(c =>
+		let weights = this.player.hand.cards.map(c =>
 			({
 				weight: this.weightCard(c, data_max, data_board),
 				action: async () => await this.playCard(c, data_max, data_board)
 			}));
-		if (player.leaderAvailable)
+		if (this.player.leaderAvailable)
 			weights.push({
-				weight: this.weightLeader(player.leader, data_max, data_board),
+				weight: this.weightLeader(this.player.leader, data_max, data_board),
 				action: async () => {
 					await ui.notification("op-leader", 1200);
-					await player.activateLeader();
+					await this.player.activateLeader();
 				}
 			});
 		weights.push({
 			weight: this.weightPass(),
-			action: async () => await player.passRound()
+			action: async () => await this.player.passRound()
 		});
 		let weightTotal = weights.reduce((a, c) => a + c.weight, 0);
 		if (weightTotal === 0) {
-			for (let i = 0; i < player.hand.cards.length; ++i) {
-				let card = player.hand.cards[i];
+			for (let i = 0; i < this.player.hand.cards.length; ++i) {
+				let card = this.player.hand.cards[i];
 				if (card.row === "weather" && this.weightWeather(card) > -1 || card.abilities.includes("avenger")) {
 					await weights[i].action();
 					return;
 				}
 			}
-			await player.passRound();
+			await this.player.passRound();
 		} else {
 			let rand = randomInt(weightTotal);
 			for (var i = 0; i < weights.length; ++i) {
@@ -127,19 +205,17 @@ class ControllerAI {
 
 	// Swaps a card from the hand with the deck if beneficial
 	redraw() {
-		let card = this.discardOrder({
-			holder: this.player
-		}).shift();
+		let card = this.discardOrder(this.player.hand.cards).shift();
 		if (card && card.power < 15) {
 			this.player.deck.swap(this.player.hand, this.player.hand.removeCard(card))
 		}
 	}
 
 	// Orders discardable cards from most to least discardable
-	discardOrder(card) {
+	discardOrder(pile) {
 		let cards = [];
 		let groups = {};
-		let musters = card.holder.hand.cards.filter(c => c.abilities.includes("muster"));
+		let musters = pile.filter(c => c.abilities.includes("muster"));
 		while (musters.length > 0) {
 			let curr = musters.pop();
 			let i = curr.name.indexOf('-');
@@ -159,13 +235,13 @@ class ControllerAI {
 			cards.push(...group);
 		}
 
-		let weathers = card.holder.hand.cards.filter(c => c.row === "weather");
+		let weathers = pile.filter(c => c.row === "weather");
 		if (weathers.length > 1) {
 			weathers.splice(randomInt(weathers.length), 1);
 			cards.push(...weathers);
 		}
 
-		let normal = card.holder.hand.cards.filter(c => c.abilities.length === 0);
+		let normal = pile.filter(c => c.abilities.length === 0);
 		normal.sort(Card.compare);
 		cards.push(...normal);
 		return cards;
@@ -480,10 +556,10 @@ var may_leader = true,
 
 // Can make actions during turns like playing cards that it owns
 class Player {
-	constructor(id, name, deck) {
+	constructor(id, name, deck, controllserCls) {
 		this.id = id;
 		this.tag = (id === 0) ? "me" : "op";
-		this.controller = (id === 0) ? new Controller() : new ControllerAI(this);
+		this.controller = new controllserCls(this);
 
 		this.hand = (id === 0) ? new Hand(document.getElementById("hand-row")) : new HandAI();
 		this.grave = new Grave(document.getElementById("grave-" + this.tag));
@@ -556,14 +632,7 @@ class Player {
 		if (this.leaderAvailable)
 			this.elem_leader.children[1].classList.remove("hide");
 
-		if (this === player_me) {
-			document.getElementById("pass-button").classList.remove("noclick");
-			may_pass1 = true;
-		}
-
-		if (this.controller instanceof ControllerAI) {
-			await this.controller.startTurn(this);
-		}
+		await this.controller.startTurn();
 	}
 
 	// Passes the round and ends the turn
@@ -911,7 +980,7 @@ class Deck extends CardContainer {
 
 	// Creates duplicates of cards with a count of more than one, then initializes deck
 	initializeFromID(card_id_list, player) {
-		this.initialize(card_id_list.reduce((a, c) => a.concat(clone(c.count, card_dict[c.index])), []), player);
+		this.initialize(card_id_list.reduce((a, c) => a.concat(clone(c.count, card_dict[c.id])), []), player);
 
 		function clone(n, elem) {
 			for (var i = 0, a = []; i < n; ++i) a.push(elem);
@@ -1454,7 +1523,6 @@ class Game {
 		this.roundCount = 0;
 		this.roundHistory = [];
 
-		this.randomRespawn = false;
 		this.doubleSpyPower = false;
 
 		weather.reset();
@@ -1518,9 +1586,8 @@ class Game {
 
 	// Allows the player to swap out up to two cards from their iniitial hand
 	async initialRedraw() {
-		for (let i = 0; i < 2; i++)
-			player_op.controller.redraw();
-		await ui.queueCarousel(player_me.hand, 2, async (c, i) => await player_me.deck.swap(c, c.removeCard(i)), c => true, true, true, "Choose up to 2 cards to redraw.");
+		await player_me.controller.initialRedraw()
+		await player_op.controller.initialRedraw()
 		ui.enablePlayer(false);
 		game.startRound();
 	}
@@ -2251,14 +2318,6 @@ class UI {
 	// Displays a Carousel menu of filtered container items that match the predicate.
 	// Suspends gameplay until the Carousel is closed. Automatically picks random card if activated for AI player
 	async queueCarousel(container, count, action, predicate, bSort, bQuit, title) {
-		if (game.currPlayer === player_op) {
-			if (player_op.controller instanceof ControllerAI)
-				for (let i = 0; i < count; ++i) {
-					let cards = container.cards.reduce((a, c, i) => !predicate || predicate(c) ? a.concat([i]) : a, []);
-					await action(container, cards[randomInt(cards.length)]);
-				}
-			return;
-		}
 		let carousel = new Carousel(container, count, action, predicate, bSort, bQuit, title);
 		if (Carousel.curr === undefined || Carousel.curr === null)
 			carousel.start();
@@ -2535,6 +2594,11 @@ class Carousel {
 	static clearCurrent() {
 		this.curr = null;
 	}
+
+	// Statically cancels the current carousel
+	static cancelCurr() {
+		if (this.curr !== null) this.curr.cancel();
+	}
 }
 
 // Custom confirmation windows
@@ -2605,14 +2669,9 @@ class DeckMaker {
 			this.style.boxShadow = "0 0 0 #6d5210"
 		});
 
-		this.faction = "realms";
+		let start_deck = DeckMaker.deckFromObj(premade_decks[0]);
+		this.faction = start_deck.faction;
 		this.setFaction(this.faction, true);
-
-		let start_deck = JSON.parse(premade_deck[0]);
-		start_deck.cards = start_deck.cards.map(c => ({
-			index: c[0],
-			count: c[1]
-		}));
 		this.setLeader(start_deck.leader);
 		this.makeBank(this.faction, start_deck.cards);
 
@@ -2622,6 +2681,7 @@ class DeckMaker {
 		document.getElementById("download-deck").addEventListener("click", () => this.downloadDeck(), false);
 		document.getElementById("add-file").addEventListener("change", () => this.uploadDeck(), false);
 		document.getElementById("start-game").addEventListener("click", () => this.startNewGame(), false);
+		document.getElementById("challenge-game").addEventListener("submit", () => this.sendChallenge(), false);
 		window.addEventListener("keydown", function (e) {
 			if (document.getElementById("deck-customization").className.indexOf("hide") == -1) {
 				switch(e.keyCode) {
@@ -2642,6 +2702,11 @@ class DeckMaker {
 		if (!this.loadDeckLocal()) this.update();
 	}
 
+	setLeader(leader) {
+		this.leader = leader;
+		this.leader_elem.children[1].style.backgroundImage = largeURL(this.leader.deck + "_" + this.leader.filename);
+	}
+
 	// Called when client selects a deck faction. Clears previous cards and makes valid cards available.
 	setFaction(faction_name, silent) {
 		if (!silent && this.faction === faction_name)
@@ -2657,15 +2722,10 @@ class DeckMaker {
 		this.elem.getElementsByTagName("h1")[0].style.backgroundImage = iconURL("deck_shield_" + faction_name);
 		document.getElementById("faction-description").innerHTML = factions[faction_name].description;
 
-		this.leaders =
-			card_dict.map((c, i) => ({
-				index: i,
-				card: c
-			}))
-			.filter(c => c.card.deck === faction_name && c.card.row === "leader");
+		this.leaders = card_list.filter(c => c.deck === faction_name && c.row === "leader");
 		if (!this.leader || this.faction !== faction_name) {
 			this.leader = this.leaders[0];
-			this.leader_elem.children[1].style.backgroundImage = largeURL(this.leader.card.deck + "_" + this.leader.card.filename);
+			this.leader_elem.children[1].style.backgroundImage = largeURL(this.leader.deck + "_" + this.leader.filename);
 		}
 		this.faction = faction_name;
 		setTimeout(function() {
@@ -2674,25 +2734,16 @@ class DeckMaker {
 		return true;
 	}
 
-	// Called when client selects a leader for their deck
-	setLeader(index) {
-		this.leader = this.leaders.filter(l => l.index == index)[0];
-		this.leader_elem.children[1].style.backgroundImage = largeURL(this.leader.card.deck + "_" + this.leader.card.filename);
-	}
 
 	// Constructs a bank of cards that can be used by the faction's deck.
 	// If a deck is provided, will not add cards to bank that are already in the deck.
 	makeBank(faction, deck) {
 		this.clear();
-		let cards = card_dict.map((c, i) => ({
-			card: c,
-			index: i
-		})).filter(
-			p => [faction, "neutral", "weather", "special"].includes(p.card.deck) && p.card.row !== "leader");
-
-		cards.sort(function (id1, id2) {
-			let a = card_dict[id1.index],
-				b = card_dict[id2.index];
+		let cards = card_list.filter(c => [faction, "neutral", "weather", "special"].includes(c.deck) && c.row !== "leader");
+		
+		cards.sort((id1, id2) => {
+			let a = card_dict[id1.id],
+				b = card_dict[id2.id];
 			let c1 = {
 				name: a.name,
 				basePower: -a.strength,
@@ -2709,18 +2760,18 @@ class DeckMaker {
 
 		let deckMap = {};
 		if (deck) {
-			for (let i of Object.keys(deck)) deckMap[deck[i].index] = deck[i].count;
+			for (let i of Object.keys(deck)) deckMap[deck[i].id] = deck[i].count;
 		}
 		cards.forEach(p => {
-			let count = deckMap[p.index] !== undefined ? Number(deckMap[p.index]) : 0;
-			this.makePreview(p.index, Number.parseInt(p.card.count) - count, this.bank_elem, this.bank, );
-			this.makePreview(p.index, count, this.deck_elem, this.deck);
+			let count = deckMap[p.id] !== undefined ? Number(deckMap[p.id]) : 0;
+			this.makePreview(p.id, Number.parseInt(p.count) - count, this.bank_elem, this.bank);
+			this.makePreview(p.id, count, this.deck_elem, this.deck);
 		});
 	}
 
 	// Creates HTML elements for the card previews
-	makePreview(index, num, container_elem, cards) {
-		let card_data = card_dict[index];
+	makePreview(id, num, container_elem, cards) {
+		let card_data = card_dict[id];
 
 		let elem = document.createElement("div");
 		elem.style.backgroundImage = largeURL(card_data.deck + "_" + card_data.filename);
@@ -2730,7 +2781,7 @@ class DeckMaker {
 		container_elem.appendChild(elem);
 
 		let bankID = {
-			index: index,
+			id: id,
 			count: num,
 			elem: elem
 		};
@@ -2779,7 +2830,7 @@ class DeckMaker {
 			strength = 0,
 			hero = 0;
 		for (let x of this.deck) {
-			let card_data = card_dict[x.index];
+			let card_data = card_dict[x.id];
 			if (x.count)
 				x.elem.classList.remove("hide");
 			else
@@ -2821,7 +2872,7 @@ class DeckMaker {
 	selectLeader() {
 		let container = new CardContainer();
 		container.cards = this.leaders.map(c => {
-			let card = new Card(c.card, player_me);
+			let card = new Card(c, player_me);
 			card.data = c;
 			return card;
 		});
@@ -2830,7 +2881,7 @@ class DeckMaker {
 		ui.queueCarousel(container, 1, (c, i) => {
 			let data = c.cards[i].data;
 			this.leader = data;
-			this.leader_elem.children[1].style.backgroundImage = largeURL(data.card.deck + "_" + data.card.filename);
+			this.leader_elem.children[1].style.backgroundImage = largeURL(data.deck + "_" + data.filename);
 		}, () => true, false, true);
 		Carousel.curr.index = index;
 		Carousel.curr.update();
@@ -2908,6 +2959,21 @@ class DeckMaker {
 		return true;
 	}
 
+	sendChallenge() {
+		var conn = peer.connect(document.getElementById('challenge-user-id').value, {metadata: {username: username}});
+		conn.on('open', function() {
+			conn.on('data', (data) => {
+				if (data.type == 'accept') {
+					
+				}
+				console.log(data);
+			});
+
+			console.log(conn);
+			peerConnection = conn;
+		});
+	}
+
 	// Verifies current deck, creates the players and their decks, then starts a new game
 	startNewGame() {
 		// openFullscreen();
@@ -2924,21 +2990,14 @@ class DeckMaker {
 
 		let me_deck = {
 			faction: this.faction,
-			leader: card_dict[this.leader.index],
+			leader: card_dict[this.leader.id],
 			cards: this.deck.filter(x => x.count > 0)
 		};
 
-		let op_deck = JSON.parse(premade_deck[randomInt(Object.keys(premade_deck).length)]);
-		op_deck.cards = op_deck.cards.map(c => ({
-			index: c[0],
-			count: c[1]
-		}));
+		let op_deck = DeckMaker.deckFromObj(premade_decks[randomInt(premade_decks.length)]);
 
-		let leaders = card_dict.filter(c => c.row === "leader" && c.deck === op_deck.faction);
-		op_deck.leader = leaders[randomInt(leaders.length)];
-
-		player_me = new Player(0, "Player 1", me_deck);
-		player_op = new Player(1, "Player 2", op_deck);
+		player_me = new Player(0, username, me_deck, Controller);
+		player_op = new Player(1, "Player 2", op_deck, ControllerAI);
 
 		this.elem.classList.add("hide");
 		called_leader = false;
@@ -2946,14 +3005,18 @@ class DeckMaker {
 		game.startGame();
 	}
 
+	// Converts the current deck to a object
+	deckToObj() {
+		return {
+			faction: this.faction,
+			leader: this.leader.id,
+			cards: this.deck.filter(x => x.count > 0).map(x => [x.id, x.count])
+		};
+	}
+
 	// Converts the current deck to a JSON string
 	deckToJSON() {
-		let obj = {
-			faction: this.faction,
-			leader: this.leader.index,
-			cards: this.deck.filter(x => x.count > 0).map(x => [x.index, x.count])
-		};
-		return JSON.stringify(obj);
+		return JSON.stringify(this.deckToObj());
 	}
 
 	// Called by the client to downlaod the current deck as a JSON file
@@ -2976,6 +3039,7 @@ class DeckMaker {
 			try {
 				this.deckFromJSON(e.target.result);
 			} catch (e) {
+				console.error(e);
 				aviso("Uploaded deck is not formatted correctly!");
 			}
 		}
@@ -2984,42 +3048,59 @@ class DeckMaker {
 		// openFullscreen();
 	}
 
+	static deckFromObj(obj) {
+		obj.cards = obj.cards.map(c => ({
+			id: c[0],
+			count: c[1],
+		}));
+
+		let leader = card_dict[obj.leader];
+		obj.leader = leader;
+		return obj;
+	}
+
+	static validateDeck(deck) {
+		let warning = '';
+
+		if (!(deck.faction in factions))
+			warning += "Faction '" + deck.faction + "' is not known.\n";
+		else if (deck.faction !== deck.leader.deck)
+		warning += "Leader '" + card_dict[deck.leader].name + "' doesn't match deck faction '" + deck.faction + "'.\n";
+
+		if (deck.leader === undefined)
+			warning += "Deck has no leader\n";
+		else if (deck.leader.row !== "leader")
+			warning += "'" + card_dict[deck.leader].name + "' is cannot be used as a leader\n";
+
+		deck.cards.forEach(c => {
+			let card = card_dict[c.id];
+			if (!card) {
+				warning += "ID " + c.id + " does not correspond to a card.\n";
+				return;
+			}
+			if (![deck.faction, "neutral", "special", "weather"].includes(card.deck)) {
+				warning += "'" + card.name + "' cannot be used in a deck of faction type '" + deck.faction + "'\n";
+				return;
+			}
+			if (card.count < c.count) {
+				warning += "Deck contains " + c.id + "/" + card.count + " available " + card_dict[c.id].name + " cards\n";
+				return;
+			}
+		});
+		return warning;
+	}
+
 	// Creates a deck from a JSON file's contents and sets that as the current deck
 	// Notifies client with warnings if the deck is invalid
 	deckFromJSON(json) {
 		let deck;
 		try {
-			deck = JSON.parse(json);
+			deck = DeckMaker.deckFromObj(JSON.parse(json));
 		} catch (e) {
 			aviso("Deck is not parsable!");
 			return;
 		}
-		let warning = "";
-		if (card_dict[deck.leader].row !== "leader")
-			warning += "'" + card_dict[deck.leader].name + "' is cannot be used as a leader\n";
-		if (deck.faction != card_dict[deck.leader].deck)
-			warning += "Leader '" + card_dict[deck.leader].name + "' doesn't match deck faction '" + deck.faction + "'.\n";
-
-		let cards = deck.cards.filter(c => {
-				let card = card_dict[c[0]];
-				if (!card) {
-					warning += "ID " + c[0] + " does not correspond to a card.\n";
-					return false
-				}
-				if (![deck.faction, "neutral", "special", "weather"].includes(card.deck)) {
-					warning += "'" + card.name + "' cannot be used in a deck of faction type '" + deck.faciton + "'\n";
-					return false;
-				}
-				if (card.count < c[1]) {
-					warning += "Deck contains " + c[1] + "/" + card.count + " available " + card_dict[c.index].name + " cards\n";
-					return false;
-				}
-				return true;
-			})
-			.map(c => ({
-				index: c[0],
-				count: Math.min(c[1], card_dict[c[0]].count)
-			}));
+		let warning = DeckMaker.validateDeck(deck);
 
 		if (warning) {
 			playSfx("warning");
@@ -3029,11 +3110,9 @@ class DeckMaker {
 			}
 		}
 		this.setFaction(deck.faction, true);
-		if (card_dict[deck.leader].row === "leader" && deck.faction === card_dict[deck.leader].deck) {
-			this.leader = this.leaders.filter(c => c.index === deck.leader)[0];
-			this.leader_elem.children[1].style.backgroundImage = largeURL(this.leader.card.deck + "_" + this.leader.card.filename);
-		}
-		this.makeBank(deck.faction, cards);
+		this.leader = deck.leader;
+		this.leader_elem.children[1].style.backgroundImage = largeURL(this.leader.deck + "_" + this.leader.filename);
+		this.makeBank(deck.faction, deck.cards);
 		this.update();
 	}
 }
@@ -3055,7 +3134,7 @@ async function translateTo(card, container_source, container_dest) {
 	if (container_dest instanceof Row && container_dest.cards.length !== 0 && !card.isSpecial()) {
 		x += (container_dest.getSortedIndex(card) === container_dest.cards.length) ? elem.offsetWidth / 2 : -elem.offsetWidth / 2;
 	}
-	if (card.holder.controller instanceof ControllerAI)
+	if (card.holder == player_op)
 		x += elem.offsetWidth / 2;
 	if (container_source instanceof Row && container_dest instanceof Grave && !card.isSpecial()) {
 		let mid = trueOffset(container_source.elem, true) + container_source.elem.offsetWidth / 2;
@@ -3257,7 +3336,7 @@ document.onkeydown = function (e) {
 					Popup.curr.selectNo();
 					break;
 			}
-		} else if (!iniciou && isLoaded && (e.keyCode == 13 || e.keyCode == 69)) inicio();
+		}
 	} else return false;
 }
 
@@ -3330,9 +3409,28 @@ function cartaNaLinha(id, carta) {
 	}
 }
 
-function inicio() {
+function initializeGame() {
 	document.getElementById("very_start_bg1").style.display = "none";
 	iniciou = true;
+	peer = new Peer();
+	peer.on('open', (id) => {
+		console.log('My peer ID is: ' + id);
+	});
+	peer.on('connection', (conn) => {
+		if (peerConnection !== null) {
+			conn.close();
+			return;
+		}
+		conn.on('open', function() {
+			// conn.on('data', function(data) {
+			//   console.log('Received', data);
+			// });
+		
+			console.log(conn);
+			peerConnection = conn;
+			peerConnection.send({type: 'accept', username: username, deck: dm.deckToObj()});
+		});
+	});
 	playSfx("menu_opening");
 	// openFullscreen();
 	ui.initAudio();
@@ -3348,14 +3446,19 @@ function cancelaClima() {
 	}
 }
 
+var peer = null;
+var peerConnection = null;
 var iniciou = false, isLoaded = false;
 
 var playingOnline;
+
+var username = '';
 
 function saveSettings() {
 	localStorage.setItem('settings', JSON.stringify({
 		'mutedMusic': ui.mutedMusic,
 		'mutedSfx': ui.mutedSfx,
+		'username': username,
 	}));
 }
 
@@ -3373,20 +3476,23 @@ function loadSettings() {
 	};
 	ui.mutedMusic = getSetting('mutedMusic', false);
 	ui.mutedSfx = getSetting('mutedSfx', false);
+	username = getSetting('username', '');
 }
 
 window.onload = function() {
 	dimensionar();
 	playingOnline = true;
+	loadSettings();
 	document.getElementById("load_text").style.display = "none";
-	document.getElementById("button_start").style.display = "inline-block";
+	document.getElementById("form-start").style.display = "";
 	document.getElementById("deck-customization").style.display = "";
 	document.getElementById("toggle-music").style.display = "";
 	document.getElementById("toggle-sfx").style.display = "";
 	document.getElementsByTagName("main")[0].style.display = "";
-	loadSettings();
-	document.getElementById("button_start").addEventListener("click", function() {
-		inicio();
+	document.getElementById("username").value = username;
+	document.getElementById("form-start").addEventListener("submit", () => {
+		username = document.getElementById("username").value;
+		initializeGame();
 	});
 	isLoaded = true;
 }

@@ -128,14 +128,7 @@ var ability_dict = {
 			let units = card.holder.grave.findCards(c => c.isUnit());
 			if (units.length <= 0)
 				return;
-			let wrapper = {card : null};
-			if (game.randomRespawn) {
-				 wrapper.card = grave.findCardsRandom(c => c.isUnit())[0];
-			} else if (card.holder.controller instanceof ControllerAI)
-				wrapper.card =  card.holder.controller.medic(card, grave);
-			else
-				await ui.queueCarousel(card.holder.grave, 1, (c, i) => wrapper.card=c.cards[i], c => c.isUnit(), true);
-			let res = wrapper.card;
+			let res = await card.holder.controller.chooseMedic(card, grave);
 			grave.removeCard(res);
 			grave.addCard(res);
 			await res.animate("medic");
@@ -220,12 +213,7 @@ var ability_dict = {
 	emhyr_emperor: {
 		description: "Look at 3 random cards from your opponent's hand.",
 		activated: async card => {
-			if (card.holder.controller instanceof ControllerAI)
-				return;
-			let container = new CardContainer();
-			container.cards = card.holder.opponent().hand.findCardsRandom(() => true, 3);
-			Carousel.curr.cancel();
-			await ui.viewCardsInContainer(container);
+			await card.holder.controller.lookAtCards(card.holder.opponent().hand.findCardsRandom(() => true, 3));
 		},
 		weight: card => {
 			let count = card.holder.opponent().hand.cards.length;
@@ -241,18 +229,7 @@ var ability_dict = {
 			let grave = board.getRow(card, "grave", card.holder.opponent());
 			if (grave.findCards(c => c.isUnit()).length === 0)
 				return;
-			if (card.holder.controller instanceof ControllerAI) {
-				let newCard = card.holder.controller.medic(card, grave);
-				newCard.holder = card.holder;
-				await board.toHand(newCard, grave);
-				return;
-			}
-			Carousel.curr.cancel();
-			await ui.queueCarousel(grave, 1, (c,i) => {
-				let newCard = c.cards[i];
-				newCard.holder = card.holder;
-				board.toHand(newCard, grave);
-			}, c => c.isUnit(), true);
+			await card.holder.controller.drawFromPile(card, grave, 1, (c) => c.isUnit());
 		},
 		weight: (card, ai, max, data) => ai.weightMedic(data, 0, card.holder.opponent())
 	},
@@ -269,35 +246,21 @@ var ability_dict = {
 		name: "Eredin : Bringer of Death",
 		description: "Restore a card from your discard pile to your hand.",
 		activated: async card => {
-			let newCard;
-			if (card.holder.controller instanceof ControllerAI) {
-				newCard = card.holder.controller.medic(card, card.holder.grave)
-			} else {
-				Carousel.curr.exit();
-				await ui.queueCarousel(card.holder.grave, 1, (c,i) => newCard = c.cards[i], c => c.isUnit(), false, false);
-			}
-			if (newCard)
-				await board.toHand(newCard, card.holder.grave);
+			await card.holder.controller.drawFromPile(card, card.holder.grave, 1, (c) => c.isUnit());
 		},
 		weight: (card, ai, max, data) => ai.weightMedic(data, 0, card.holder)
 	},
 	eredin_destroyer: {
-		description: "Discard 2 card and draw 1 card of your choice from your deck.",
+		description: "Discard 2 cards and draw 1 card of your choice from your deck.",
 		activated: async (card) => {
 			let hand = board.getRow(card, "hand", card.holder);
 			let deck = board.getRow(card, "deck", card.holder);
-			if (card.holder.controller instanceof ControllerAI) {
-				let cards = card.holder.controller.discardOrder(card).splice(0,2).filter(c => c.basePower < 7);
-				await Promise.all(cards.map(async c => await board.toGrave(c, card.holder.hand)));
-				card.holder.deck.draw(card.holder.hand);
-				return;
-			} else
-				Carousel.curr.exit();
-			await ui.queueCarousel(hand, 2, (c,i) => board.toGrave(c.cards[i], c), () => true);
-			await ui.queueCarousel(deck, 1, (c,i) => board.toHand(c.cards[i], deck), () => true, true);
+
+			await card.holder.controller.discardCards(hand, 2);
+			await card.holder.controller.drawFromPile(card, deck, 1, () => true);
 		},
 		weight: (card, ai) => {
-			let cards = ai.discardOrder(card).splice(0,2).filter(c => c.basePower < 7);
+			let cards = ai.discardOrder(card.holder.hand.cards).splice(0,2).filter(c => c.basePower < 7);
 			if (cards.length < 2)
 				return 0;
 			return cards[0].abilities.includes("muster") ? 50 : 25;
@@ -307,26 +270,15 @@ var ability_dict = {
 		description: "Pick any weather card from your deck and play it instantly.",
 		activated: async card => {
 			let deck = board.getRow(card, "deck", card.holder);
-			if (card.holder.controller instanceof ControllerAI) {
-				await ability_dict["eredin_king"].helper(card).card.autoplay(card.holder.deck);
-			} else {
-				Carousel.curr.cancel();
-				await ui.queueCarousel(deck, 1, (c,i) => board.toWeather(c.cards[i], deck), c => c.faction === "weather", true);
-			}
+			await card.holder.controller.helperChoices(deck, await ability_dict["eredin_king"].helper(card), 1);
 		},
 		weight: (card, ai, max) => ability_dict["eredin_king"].helper(card).weight,
 		helper: card => {
-			let weather = card.holder.deck.cards.filter(c => c.row === "weather").reduce((a,c) =>a.map(c => c.name).includes(c.name) ? a : a.concat([c]), [] );
-			
-			let out, weight = -1;
-			weather.forEach( c => {
-				let w = card.holder.controller.weightWeatherFromDeck(c, c.abilities[0]);
-				if (w > weight) {
-					weight = w;
-					out = c;
-				}
-			});
-			return {card: out, weight: weight};
+			let weather = card.holder.deck.cards.filter(c => c.row === "weather").reduce((a,c) => a.map(c => c.name).includes(c.name) ? a : a.concat([c]), []).map(
+				c => { return {weight: card.holder.controller.weightWeatherFromDeck(c, c.abilities[0]), card: c} }
+			);
+			weather.sort((a, b) => b.weight - a.weight)
+			return weather.map(c => c.card);
 		}			
 	},
 	eredin_treacherous: {

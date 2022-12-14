@@ -27,7 +27,11 @@
 				OF GWENT?
 				<br /><br />
 				<span id="load_text">Loading...</span>
-				<button class="start-game_class" id="button_start" style="display:none">Click here to begin</button>
+				<form id="form-start" style="display: none;" action="javascript:void(0);">
+					<label for="username">Enter your name:</label><br>
+					<input type="text" id="username" value="" required><br>
+					<button type="submit" class="start-game_class">Click here to begin</button>
+				</form>
 			</div>
 		</div>
 	</div>
@@ -214,7 +218,7 @@
 			<h1></h1>
 		</div>
 		<p id="faction-description"></p>
-		<label id="upload-deck" class="deck-options">
+		<label id="upload-deck" class="deck-options hover_un">
 			<input type="file" id="add-file" value="Import" style="display:none;" />
 			Upload Deck
 		</label>
@@ -242,6 +246,10 @@
 			<p>0</p>
 		</div>
 		<button id="start-game" class="start-game_class">Start game</button>
+		<form id="challenge-game" action="javascript:void(0);">
+			<input type="text" id="challenge-user-id" value="" placeholder="ID" required>
+			<button type="submit" class="start-game_class">Challenge</button>
+		</form>
 	</section>
 	<div id="toggle-music" class="center music-customization" style="display:none">♫&#xFE0E;</div>
 	<div id="toggle-sfx" class="center music-customization" style="display:none">📢&#xFE0E;</div>
@@ -250,6 +258,7 @@
 	<script type="text/javascript" src="abilities.js"></script>
 	<script type="text/javascript" src="factions.js"></script>
 	<script src="https://www.youtube.com/iframe_api"></script>
+	<script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
 	<script type="text/javascript" src="gwent.js"></script>
 </body>
 
